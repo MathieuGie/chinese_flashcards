@@ -8,14 +8,12 @@ export async function POST(req: Request) {
   const words = parseWordList(text ?? "").slice(0, 40);
   if (words.length === 0)
     return Response.json({ error: "No Chinese characters found." }, { status: 400 });
-  const existing = await findByHanzi(words.map((w) => w.hanzi));
-  const drafts = await enrichWords(words);
-  for (const d of drafts) {
-    const dup = existing.get(d.hanzi);
-    if (dup) {
-      d.duplicateOf = dup;
-      d.warnings.unshift("Already in your deck.");
-    }
-  }
-  return Response.json({ drafts, mode: enrichmentMode() });
+
+  // Words already in the deck are not looked up again — they're just reported back.
+  const found = await findByHanzi(words.map((w) => w.hanzi));
+  const existing = words.filter((w) => found.has(w.hanzi)).map((w) => ({ id: found.get(w.hanzi)!, hanzi: w.hanzi }));
+  const fresh = words.filter((w) => !found.has(w.hanzi));
+
+  const drafts = fresh.length ? await enrichWords(fresh) : [];
+  return Response.json({ drafts, existing, mode: enrichmentMode() });
 }

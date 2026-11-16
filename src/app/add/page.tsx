@@ -13,19 +13,27 @@ export default function AddPage() {
   const [mode, setMode] = useState<"ai" | "dictionary" | null>(null);
   const [busy, setBusy] = useState<"lookup" | "save" | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState<number | null>(null);
+  const [saved, setSaved] = useState<{ added: number; skipped: number } | null>(null);
+  const [existing, setExisting] = useState<{ id: number; hanzi: string }[]>([]);
 
   const lookup = async () => {
     setBusy("lookup");
     setError(null);
     setSaved(null);
+    setExisting([]);
     try {
-      const res = await api<{ drafts: DraftCard[]; mode: "ai" | "dictionary" }>("/api/enrich", {
-        method: "POST",
-        json: { text },
-      });
+      const res = await api<{ drafts: DraftCard[]; existing: { id: number; hanzi: string }[]; mode: "ai" | "dictionary" }>(
+        "/api/enrich",
+        { method: "POST", json: { text } },
+      );
       setMode(res.mode);
-      setDrafts(res.drafts.map((d) => ({ ...d, include: !d.duplicateOf && !!d.english, open: false })));
+      setExisting(res.existing);
+      if (res.drafts.length === 0) {
+        setDrafts(null);
+        setText("");
+        return;
+      }
+      setDrafts(res.drafts.map((d) => ({ ...d, include: !!d.english, open: false })));
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -43,7 +51,8 @@ export default function AddPage() {
         method: "POST",
         json: { cards: chosen },
       });
-      setSaved(res.ids.length);
+      setSaved({ added: res.ids.length, skipped: res.skipped });
+      setExisting([]);
       setDrafts(null);
       setText("");
     } catch (e) {
@@ -64,7 +73,10 @@ export default function AddPage() {
 
       {saved !== null && (
         <div className="rounded-xl bg-jade/10 text-jade px-4 py-3 flex items-center justify-between">
-          <span>Added {saved} card{saved === 1 ? "" : "s"} to your deck.</span>
+          <span>
+            Added {saved.added} card{saved.added === 1 ? "" : "s"} to your deck.
+            {saved.skipped > 0 && ` (${saved.skipped} already there, skipped.)`}
+          </span>
           <Link href="/study" className="underline font-medium">Study now →</Link>
         </div>
       )}
@@ -89,6 +101,20 @@ export default function AddPage() {
       )}
 
       {error && <div className="rounded-xl bg-seal/10 text-seal px-3 py-2 text-sm">{error}</div>}
+
+      {existing.length > 0 && (
+        <div className="rounded-xl bg-paper-2 px-4 py-3 text-sm">
+          <span className="text-ink-soft">
+            {drafts ? "Already in your deck, so not added again: " : existing.length === 1 ? "Already in your deck: " : `All ${existing.length} words are already in your deck: `}
+          </span>
+          {existing.map((e, i) => (
+            <span key={e.id}>
+              {i > 0 && "、"}
+              <Link href={`/cards/${e.id}`} className="font-hanzi text-base text-seal underline">{e.hanzi}</Link>
+            </span>
+          ))}
+        </div>
+      )}
 
       {drafts && (
         <>

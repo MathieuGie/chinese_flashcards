@@ -207,7 +207,9 @@ async function dictionaryEnrich(word: ParsedWord, entries: CedictEntry[]): Promi
   }
   const sentences = await tatoebaSentences(word.hanzi);
   if (sentences.length < 3)
-    warnings.push(`Only ${sentences.length} example sentence(s) found — add some or set ANTHROPIC_API_KEY.`);
+    warnings.push(
+      `${sentences.length === 0 ? "No example sentences" : `Only ${sentences.length} example sentence${sentences.length === 1 ? "" : "s"}`} found — add some in “Review / edit”, or set ANTHROPIC_API_KEY.`,
+    );
   return {
     hanzi: word.hanzi,
     pinyin,

@@ -86,5 +86,4 @@ export interface DraftCard {
   sentences: Sentence[];
   source: "ai" | "dictionary" | "manual";
   warnings: string[];
-  duplicateOf?: number;
 }
