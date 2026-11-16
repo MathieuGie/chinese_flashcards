@@ -1,26 +1,87 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --paper: #faf6ef;
+  --paper-2: #f3ede2;
+  --ink: #1f1a17;
+  --ink-soft: #6b625a;
+  --line: #e4dccf;
+  --seal: #c8372d;
+  --jade: #2f8f6b;
+  --gold: #c99a2e;
+  --card: #fffdf9;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --paper: #17140f;
+    --paper-2: #211c16;
+    --ink: #f1ebe2;
+    --ink-soft: #a89e92;
+    --line: #3a3229;
+    --seal: #e0574b;
+    --jade: #3fa57f;
+    --gold: #dcb14d;
+    --card: #231e18;
   }
 }
 
+@theme inline {
+  --color-paper: var(--paper);
+  --color-paper-2: var(--paper-2);
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-line: var(--line);
+  --color-seal: var(--seal);
+  --color-jade: var(--jade);
+  --color-gold: var(--gold);
+  --color-card: var(--card);
+  --font-sans: var(--font-geist-sans), "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-hanzi: "Noto Serif SC", "Noto Serif CJK SC", "Source Han Serif SC", "Songti SC", "STSong", "SimSun", serif;
+}
+
+html,
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--paper);
+  color: var(--ink);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.font-hanzi {
+  font-family: var(--font-hanzi);
+}
+
+/* 3D flip */
+.flip-scene {
+  perspective: 1400px;
+}
+.flip-inner {
+  transform-style: preserve-3d;
+  transition: transform 0.45s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.flip-inner.flipped {
+  transform: rotateY(180deg);
+}
+.flip-face {
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+.flip-back {
+  transform: rotateY(180deg);
+}
+
+@utility btn {
+  @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 font-medium transition active:scale-[0.97] disabled:opacity-50 disabled:pointer-events-none;
+}
+@utility btn-primary {
+  @apply btn bg-seal text-white shadow-sm hover:brightness-110;
+}
+@utility btn-ghost {
+  @apply btn border border-line bg-card hover:bg-paper-2;
+}
+@utility input {
+  @apply w-full rounded-xl border border-line bg-card px-3 py-2 outline-none focus:border-seal/60 focus:ring-2 focus:ring-seal/15;
+}
+@utility panel {
+  @apply rounded-2xl border border-line bg-card shadow-[0_1px_0_rgba(0,0,0,0.03)];
 }

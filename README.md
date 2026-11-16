@@ -1,36 +1,39 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 字卡 · Hanzi Deck
 
-## Getting Started
+Personal Chinese flashcards with spaced repetition, swipe-to-grade, a quiz mode,
+and automatic lookup of pinyin / translation / example sentences.
 
-First, run the development server:
+## Run locally
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+cp .env.example .env.local   # optional, see below
+npm run dev                  # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Data lives in `./local.db` (SQLite), created and seeded with the starter deck on first request.
+To start over, stop the server and delete `local.db`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## How it works
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- **Study**: tap a card to flip, swipe right if you knew it, left if not (← → / space on a keyboard).
+  Left → the card comes back a few cards later. Right without flipping counts as *easy*.
+- **Directions**: 汉→EN (recognition), EN→汉 (recall) or both. Each direction has its own memory state;
+  in “both”, recall unlocks once recognition has graduated.
+- **Scheduling**: [FSRS](https://github.com/open-spaced-repetition/ts-fsrs) models each card's stability and
+  difficulty from your full answer history. Sessions put due learning cards first, then reviews with the lowest
+  predicted recall, with new cards interleaved, capped per day, and throttled if your recent accuracy drops
+  below 75% or a review backlog builds up (`src/lib/srs.ts`).
+- **Quiz**: meaning / characters / fill-in-the-blank / tones, weighted towards weak words; answers update the same
+  schedule.
+- **Adding words**: paste a list (emoji after a word is kept as its memory hook). Pinyin + definitions come from
+  CC-CEDICT; with `ANTHROPIC_API_KEY` set, Claude picks the sense, emoji and writes 6 example sentences,
+  cross-checked against the dictionary. Without a key, sentences come from Tatoeba. Everything is editable before saving.
 
-## Learn More
+## Deploy to Vercel
 
-To learn more about Next.js, take a look at the following resources:
+1. Create a Turso database (`turso db create hanzi`, `turso db tokens create hanzi`) and set
+   `TURSO_DATABASE_URL` + `TURSO_AUTH_TOKEN` in Vercel. (Vercel's filesystem isn't persistent, so `local.db` won't work there.)
+2. Set `APP_PASSWORD` so only you can use it, and `ANTHROPIC_API_KEY` for AI lookups.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Dictionary data: CC-CEDICT (CC BY-SA 4.0). Example sentences in fallback mode: Tatoeba (CC BY 2.0 FR).
