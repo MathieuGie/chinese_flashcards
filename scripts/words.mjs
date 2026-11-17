@@ -6,6 +6,8 @@
  *   npm run words -- list                    show waiting words (+ CC-CEDICT hints)
  *   npm run words -- import cards.json       validate and save cards, remove them from the list
  *   npm run words -- import cards.json --dry-run
+ *   npm run words -- import fixes.json --update   correct existing cards in place (history kept)
+ *   npm run words -- export cards.json            dump the deck (for reviewing)
  *
  * Database: the site's Turso database by default, reached through the logged-in
  * `turso` CLI. Which one is set in `.env.words` (git-ignored):
@@ -19,7 +21,7 @@
  * hanzi may be a grammar pattern ("以…为…").
  */
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { gunzipSync } from "node:zlib";
 import { createClient } from "@libsql/client";
@@ -147,57 +149,113 @@ function validate(c) {
   return { errors, warnings };
 }
 
-async function importCards(db, path, dryRun) {
+async function exportCards(db, out) {
+  const cards = (await db.execute(
+    "SELECT c.id, c.hanzi, c.pinyin, c.english, c.emoji, c.notes, (SELECT COUNT(*) FROM reviews r WHERE r.card_id = c.id) AS reviews FROM cards c ORDER BY c.created_at, c.id",
+  )).rows;
+  const sentences = (await db.execute("SELECT card_id, hanzi, english FROM sentences ORDER BY id")).rows;
+  const byCard = new Map();
+  for (const s of sentences) {
+    if (!byCard.has(Number(s.card_id))) byCard.set(Number(s.card_id), []);
+    byCard.get(Number(s.card_id)).push([String(s.hanzi), String(s.english)]);
+  }
+  const data = cards.map((c) => ({
+    hanzi: String(c.hanzi), pinyin: String(c.pinyin), english: String(c.english), emoji: String(c.emoji),
+    notes: String(c.notes), sentences: byCard.get(Number(c.id)) ?? [], reviews: Number(c.reviews),
+  }));
+  if (out) writeFileSync(out, JSON.stringify(data, null, 1));
+  else console.log(JSON.stringify(data, null, 1));
+  console.error(`${data.length} card(s) exported${out ? ` to ${out}` : ""}.`);
+}
+
+/**
+ * Adds cards. With --update, a card whose hanzi is already in the deck is corrected in
+ * place (fields + sentences replaced; its id, study history and queue position are kept).
+ * "replaces" lists other entries this card stands for: waiting entries are cleared, and
+ * existing cards are deleted (refused if they have study history, unless --force).
+ */
+async function importCards(db, path, { dryRun, update, force }) {
   const cards = JSON.parse(readFileSync(path, "utf8"));
   if (!Array.isArray(cards)) throw new Error("cards file must be a JSON array");
 
   // Matched by wordKey, so 以…为… and "以 / 为" count as the same entry.
-  const inDeck = new Set((await db.execute("SELECT hanzi FROM cards")).rows.map((r) => wordKey(String(r.hanzi))));
+  const deck = new Map(
+    (await db.execute("SELECT c.id, c.hanzi, c.created_at, (SELECT COUNT(*) FROM reviews r WHERE r.card_id = c.id) AS reviews FROM cards c")).rows.map(
+      (r) => [wordKey(String(r.hanzi)), { id: Number(r.id), hanzi: String(r.hanzi), createdAt: Number(r.created_at), reviews: Number(r.reviews) }],
+    ),
+  );
   const queued = new Map(
     (await db.execute("SELECT id, hanzi, created_at FROM pending")).rows.map((r) => [wordKey(String(r.hanzi)), { id: Number(r.id), createdAt: Number(r.created_at) }]),
   );
-  // Waiting entries a card clears: its own hanzi plus anything listed in "replaces".
-  const pendingFor = (c) =>
-    [c.hanzi, ...[c.replaces ?? []].flat()].map((h) => queued.get(wordKey(h))).filter(Boolean);
+  const alsoFor = (c) => [c.replaces ?? []].flat().filter((h) => wordKey(h) !== wordKey(c.hanzi));
+  const pendingFor = (c) => [c.hanzi, ...alsoFor(c)].map((h) => queued.get(wordKey(h))).filter(Boolean);
+  const cardsReplaced = (c) => alsoFor(c).map((h) => deck.get(wordKey(h))).filter(Boolean);
 
-  let ok = 0, failed = 0, skipped = 0;
+  const insertSentences = async (tx, cardId, sentences) => {
+    for (const [zh, en] of sentences)
+      await tx.execute({
+        sql: "INSERT INTO sentences (card_id, hanzi, pinyin, english) VALUES (?, ?, ?, ?)",
+        args: [cardId, zh.trim(), sentencePinyin(zh.trim()), en.trim()],
+      });
+  };
+  const deleteCard = async (tx, id) => {
+    for (const t of ["sentences", "srs", "reviews"]) await tx.execute({ sql: `DELETE FROM ${t} WHERE card_id = ?`, args: [id] });
+    await tx.execute({ sql: "DELETE FROM cards WHERE id = ?", args: [id] });
+  };
+
+  let added = 0, updated = 0, removed = 0, failed = 0, skipped = 0;
   const now = Date.now();
   for (const [i, c] of cards.entries()) {
-    if (inDeck.has(wordKey(c.hanzi ?? ""))) {
-      console.log(`– ${c.hanzi}: already in the deck, skipped`);
+    const existing = deck.get(wordKey(c.hanzi ?? ""));
+    if (existing && !update) {
+      console.log(`– ${c.hanzi}: already in the deck, skipped (use --update to correct it)`);
       skipped++;
       continue;
     }
     const { errors, warnings } = validate(c);
+    const doomed = cardsReplaced(c);
+    for (const d of doomed)
+      if (d.reviews > 0 && !force) errors.push(`would delete ${d.hanzi}, which has ${d.reviews} review(s) — use --force`);
     for (const w of warnings) console.log(`⚠ ${c.hanzi}: ${w}`);
     if (errors.length) {
       console.log(`✗ ${c.hanzi}: ${errors.join("; ")}`);
       failed++;
       continue;
     }
+    const verb = existing ? "↻ updated" : "✓ added";
+    const extra = doomed.length ? `, replacing ${doomed.map((d) => d.hanzi).join(" + ")}` : "";
     if (dryRun) {
-      console.log(`✓ ${c.hanzi} (${c.pinyin}) — ${c.english} — ${c.sentences.length} sentences [dry run]`);
-      ok++;
+      console.log(`${verb} ${c.hanzi} (${c.pinyin}) — ${c.english}${extra} [dry run]`);
+      existing ? updated++ : added++;
+      removed += doomed.length;
       continue;
     }
     const tx = await db.transaction("write");
     try {
-      const r = await tx.execute({
-        sql: `INSERT INTO cards (hanzi, pinyin, english, emoji, notes, source, created_at) VALUES (?, ?, ?, ?, ?, 'claude', ?)`,
+      const fields = [c.pinyin.trim(), c.english.trim(), c.emoji.trim(), (c.notes ?? "").trim()];
+      let id;
+      if (existing) {
+        id = existing.id;
+        await tx.execute({ sql: "UPDATE cards SET hanzi = ?, pinyin = ?, english = ?, emoji = ?, notes = ? WHERE id = ?", args: [c.hanzi, ...fields, id] });
+        await tx.execute({ sql: "DELETE FROM sentences WHERE card_id = ?", args: [id] });
+      } else {
         // keep the order words were added in, so they're introduced oldest-first
-        args: [c.hanzi, c.pinyin.trim(), c.english.trim(), c.emoji.trim(), (c.notes ?? "").trim(), Math.min(...pendingFor(c).map((p) => p.createdAt), now + i)],
-      });
-      for (const [zh, en] of c.sentences) {
-        await tx.execute({
-          sql: "INSERT INTO sentences (card_id, hanzi, pinyin, english) VALUES (?, ?, ?, ?)",
-          args: [Number(r.lastInsertRowid), zh.trim(), sentencePinyin(zh.trim()), en.trim()],
+        const createdAt = Math.min(...pendingFor(c).map((p) => p.createdAt), ...doomed.map((d) => d.createdAt), now + i);
+        const r = await tx.execute({
+          sql: "INSERT INTO cards (hanzi, pinyin, english, emoji, notes, source, created_at) VALUES (?, ?, ?, ?, ?, 'claude', ?)",
+          args: [c.hanzi, ...fields, createdAt],
         });
+        id = Number(r.lastInsertRowid);
       }
+      await insertSentences(tx, id, c.sentences);
+      for (const d of doomed) await deleteCard(tx, d.id);
       for (const p of pendingFor(c)) await tx.execute({ sql: "DELETE FROM pending WHERE id = ?", args: [p.id] });
       await tx.commit();
-      inDeck.add(wordKey(c.hanzi));
-      console.log(`✓ ${c.hanzi} (${c.pinyin}) — ${c.english}`);
-      ok++;
+      for (const d of doomed) deck.delete(wordKey(d.hanzi));
+      deck.set(wordKey(c.hanzi), { id, hanzi: c.hanzi, createdAt: existing?.createdAt ?? now, reviews: existing?.reviews ?? 0 });
+      console.log(`${verb} ${c.hanzi} (${c.pinyin}) — ${c.english}${extra}`);
+      existing ? updated++ : added++;
+      removed += doomed.length;
     } catch (e) {
       await tx.rollback();
       console.log(`✗ ${c.hanzi}: ${e.message}`);
@@ -207,14 +265,16 @@ async function importCards(db, path, dryRun) {
     }
   }
   const left = Number((await db.execute("SELECT COUNT(*) AS n FROM pending")).rows[0].n);
-  console.log(`\n${dryRun ? "Would import" : "Imported"} ${ok}, failed ${failed}, skipped ${skipped}. ${left} word(s) still waiting.`);
+  console.log(
+    `\n${dryRun ? "Would add" : "Added"} ${added}, ${dryRun ? "update" : "updated"} ${updated}, ${dryRun ? "remove" : "removed"} ${removed}; failed ${failed}, skipped ${skipped}. ${left} word(s) still waiting.`,
+  );
   if (failed) process.exitCode = 1;
 }
 
 // ---------- main ----------
 
-if (cmd !== "list" && cmd !== "import") {
-  console.error("Usage: npm run words -- list | import <cards.json> [--dry-run] [--local]");
+if (!["list", "import", "export"].includes(cmd)) {
+  console.error("Usage: npm run words -- list | export [out.json] | import <cards.json> [--dry-run] [--update] [--force] [--local]");
   process.exit(1);
 }
 const { client: db, where } = connect();
@@ -229,9 +289,10 @@ try {
     id INTEGER PRIMARY KEY AUTOINCREMENT, hanzi TEXT NOT NULL UNIQUE,
     emoji TEXT NOT NULL DEFAULT '', note TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL)`);
   if (cmd === "list") await list(db);
+  else if (cmd === "export") await exportCards(db, file);
   else {
     if (!file) throw new Error("import needs a cards.json path");
-    await importCards(db, file, flag("--dry-run"));
+    await importCards(db, file, { dryRun: flag("--dry-run"), update: flag("--update"), force: flag("--force") });
   }
 } catch (e) {
   console.error(`Error: ${e.message}`);
