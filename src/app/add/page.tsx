@@ -158,19 +158,21 @@ export default function AddPage() {
       {!drafts && (
         <div className="panel p-4 flex flex-col gap-3">
           <p className="text-sm text-ink-soft">
-            Paste one or many words — one per line, or separated by commas. Add an emoji after a word (like{" "}
-            <span className="font-hanzi">螺旋🌀</span>) to choose its memory hook. Words go on a waiting list, and Claude
-            writes their cards (pinyin, meaning, emoji, 6 example sentences) the next time you ask it to.
+            One entry per line. Add an emoji (like <span className="font-hanzi">螺旋🌀</span>) to choose the memory
+            hook. Pinyin or English on the line is kept as a hint for which reading and meaning you want. Several
+            words on one line stay together: <span className="font-hanzi">以…为…</span> becomes a grammar pattern,{" "}
+            <span className="font-hanzi">浓 淡</span> a pair. Words go on a waiting list, and Claude writes their cards
+            the next time you ask it to.
           </p>
           <textarea
             className="input font-hanzi text-lg min-h-40"
-            placeholder={"螺旋🌀\n跨\n顺滑"}
+            placeholder={"螺旋🌀\n盛 shèng\n以…为…\n浓 淡"}
             value={text}
             onChange={(e) => setText(e.target.value)}
           />
           <input
             className="input text-sm"
-            placeholder="Optional note for Claude — e.g. where you saw it, or the meaning you're after"
+            placeholder="Optional note for all these words — e.g. where you saw them"
             value={note}
             onChange={(e) => setNote(e.target.value)}
           />

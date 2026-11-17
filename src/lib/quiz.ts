@@ -1,4 +1,5 @@
 import "server-only";
+import { containsWord, findWord } from "./hanzi";
 import { numberedToMarks } from "./cedict";
 import { retrievability } from "./srs";
 import type { CardSummary, Direction } from "./types";
@@ -148,7 +149,7 @@ export function buildQuiz(all: CardSummary[], count: number): QuizQuestion[] {
   return picked.map((card, i) => {
     const explanation = { hanzi: card.hanzi, pinyin: card.pinyin, english: card.english, emoji: card.emoji };
     const types: QuestionType[] = ["meaning", "hanzi", "pinyin"];
-    const clozeSentences = card.sentences.filter((s) => s.hanzi.includes(card.hanzi));
+    const clozeSentences = card.sentences.filter((s) => containsWord(s.hanzi, card.hanzi));
     if (clozeSentences.length) types.push("cloze", "cloze");
     let type = types[Math.floor(Math.random() * types.length)];
 
@@ -181,7 +182,7 @@ export function buildQuiz(all: CardSummary[], count: number): QuizQuestion[] {
       correct = card.hanzi;
       options = [correct, ...pickDistractors(card, all, (c) => c.hanzi)];
       prompt = {
-        sentence: s.hanzi.split(card.hanzi).join("＿".repeat(Array.from(card.hanzi).length)),
+        sentence: blankOut(s.hanzi, card.hanzi),
         sentenceEnglish: s.english,
       };
     }
@@ -198,4 +199,15 @@ export function buildQuiz(all: CardSummary[], count: number): QuizQuestion[] {
       explanation,
     };
   });
+}
+
+/** Replaces the entry (every part of a pattern like 以…为…) with blanks, one per character. */
+function blankOut(sentence: string, hanzi: string) {
+  let out = "";
+  let at = 0;
+  for (const [a, b] of findWord(sentence, hanzi) ?? []) {
+    out += sentence.slice(at, a) + "＿".repeat(Array.from(sentence.slice(a, b)).length);
+    at = b;
+  }
+  return out + sentence.slice(at);
 }

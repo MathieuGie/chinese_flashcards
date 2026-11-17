@@ -1,21 +1,20 @@
 "use client";
 import { useState } from "react";
+import { findWord } from "@/lib/hanzi";
 import { speak } from "@/lib/client";
 import type { Card, Sentence } from "@/lib/types";
 
 export function Highlight({ text, word }: { text: string; word: string }) {
-  if (!word || !text.includes(word)) return <>{text}</>;
-  const parts = text.split(word);
-  return (
-    <>
-      {parts.map((p, i) => (
-        <span key={i}>
-          {p}
-          {i < parts.length - 1 && <span className="text-seal font-semibold">{word}</span>}
-        </span>
-      ))}
-    </>
-  );
+  const ranges = word ? findWord(text, word) : null;
+  if (!ranges) return <>{text}</>;
+  const out: React.ReactNode[] = [];
+  let at = 0;
+  for (const [a, b] of ranges) {
+    out.push(text.slice(at, a), <span key={a} className="text-seal font-semibold">{text.slice(a, b)}</span>);
+    at = b;
+  }
+  out.push(text.slice(at));
+  return <>{out}</>;
 }
 
 function SpeakButton({ text, className = "" }: { text: string; className?: string }) {

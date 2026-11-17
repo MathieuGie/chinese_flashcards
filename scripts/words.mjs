@@ -14,13 +14,16 @@
  *
  * cards.json is an array of:
  *   { "hanzi": "螺旋", "pinyin": "luóxuán", "english": "spiral; helix", "emoji": "🌀",
- *     "notes": "…", "sentences": [["中文句子。", "English sentence."], …] }
+ *     "notes": "…", "sentences": [["中文句子。", "English sentence."], …],
+ *     "replaces": "以 / 为" }   ← optional: the waiting-list entry this card is for, if its hanzi differs
+ * hanzi may be a pattern ("以…为…") or a pair ("浓 / 淡").
  */
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { gunzipSync } from "node:zlib";
 import { createClient } from "@libsql/client";
+import { containsWord, hanziParts, isPattern, wordKey } from "../src/lib/hanzi.ts";
 import { sentencePinyin } from "../src/lib/pinyin.ts";
 
 const args = process.argv.slice(2);
@@ -114,7 +117,9 @@ async function list(db) {
 function validate(c) {
   const errors = [];
   const warnings = [];
-  if (!/^\p{Script=Han}+$/u.test(c.hanzi ?? "")) errors.push("hanzi must be Chinese characters only");
+  // one word, a pattern (以…为…) or a pair (浓 / 淡)
+  if (!/^\p{Script=Han}+(?:(?:…| \/ )\p{Script=Han}+)*…?$/u.test(c.hanzi ?? ""))
+    errors.push('hanzi must be Chinese characters (patterns as "以…为…", pairs as "浓 / 淡")');
   if (!c.pinyin?.trim()) errors.push("missing pinyin");
   if (!c.english?.trim()) errors.push("missing english");
   if (!c.emoji?.trim()) errors.push("missing emoji");
@@ -123,12 +128,17 @@ function validate(c) {
   const seen = new Set();
   for (const [i, pair] of s.entries()) {
     const [zh, en] = Array.isArray(pair) ? pair : [];
-    if (!zh?.includes(c.hanzi)) errors.push(`sentence ${i + 1} doesn't contain ${c.hanzi}`);
+    if (!zh || !containsWord(zh, c.hanzi)) errors.push(`sentence ${i + 1} doesn't contain ${c.hanzi}`);
     if (!en?.trim()) errors.push(`sentence ${i + 1} has no English`);
     if (zh && seen.has(zh)) errors.push(`sentence ${i + 1} is a duplicate`);
     seen.add(zh);
   }
-  if (c.pinyin && c.hanzi) {
+  const parts = hanziParts(c.hanzi ?? "");
+  if (parts.length > 1 && !isPattern(c.hanzi)) {
+    // a pair: every word should get used somewhere in the sentences
+    for (const p of parts) if (!s.some((pair) => pair?.[0]?.includes(p))) errors.push(`no sentence uses ${p}`);
+  }
+  if (c.pinyin && c.hanzi && parts.length === 1) {
     const entries = cedict(c.hanzi);
     if (entries.length && !entries.some((e) => samePinyin(e.pinyin, c.pinyin)))
       warnings.push(`pinyin "${c.pinyin}" differs from CC-CEDICT: ${[...new Set(entries.map((e) => e.pinyin))].join(" | ")}`);
@@ -141,17 +151,17 @@ async function importCards(db, path, dryRun) {
   const cards = JSON.parse(readFileSync(path, "utf8"));
   if (!Array.isArray(cards)) throw new Error("cards file must be a JSON array");
 
-  const hanzi = cards.map((c) => c.hanzi);
-  const ph = hanzi.map(() => "?").join(",");
-  const inDeck = new Set((await db.execute({ sql: `SELECT hanzi FROM cards WHERE hanzi IN (${ph})`, args: hanzi })).rows.map((r) => String(r.hanzi)));
+  // Matched by wordKey, so 以…为… and "以 / 为" count as the same entry.
+  const inDeck = new Set((await db.execute("SELECT hanzi FROM cards")).rows.map((r) => wordKey(String(r.hanzi))));
   const queued = new Map(
-    (await db.execute({ sql: `SELECT hanzi, created_at FROM pending WHERE hanzi IN (${ph})`, args: hanzi })).rows.map((r) => [String(r.hanzi), Number(r.created_at)]),
+    (await db.execute("SELECT id, hanzi, created_at FROM pending")).rows.map((r) => [wordKey(String(r.hanzi)), { id: Number(r.id), createdAt: Number(r.created_at) }]),
   );
+  const pendingFor = (c) => queued.get(wordKey(c.replaces ?? c.hanzi)) ?? queued.get(wordKey(c.hanzi));
 
   let ok = 0, failed = 0, skipped = 0;
   const now = Date.now();
   for (const [i, c] of cards.entries()) {
-    if (inDeck.has(c.hanzi)) {
+    if (inDeck.has(wordKey(c.hanzi ?? ""))) {
       console.log(`– ${c.hanzi}: already in the deck, skipped`);
       skipped++;
       continue;
@@ -173,7 +183,7 @@ async function importCards(db, path, dryRun) {
       const r = await tx.execute({
         sql: `INSERT INTO cards (hanzi, pinyin, english, emoji, notes, source, created_at) VALUES (?, ?, ?, ?, ?, 'claude', ?)`,
         // keep the order words were added in, so they're introduced oldest-first
-        args: [c.hanzi, c.pinyin.trim(), c.english.trim(), c.emoji.trim(), (c.notes ?? "").trim(), queued.get(c.hanzi) ?? now + i],
+        args: [c.hanzi, c.pinyin.trim(), c.english.trim(), c.emoji.trim(), (c.notes ?? "").trim(), pendingFor(c)?.createdAt ?? now + i],
       });
       for (const [zh, en] of c.sentences) {
         await tx.execute({
@@ -181,8 +191,10 @@ async function importCards(db, path, dryRun) {
           args: [Number(r.lastInsertRowid), zh.trim(), sentencePinyin(zh.trim()), en.trim()],
         });
       }
-      await tx.execute({ sql: "DELETE FROM pending WHERE hanzi = ?", args: [c.hanzi] });
+      const p = pendingFor(c);
+      if (p) await tx.execute({ sql: "DELETE FROM pending WHERE id = ?", args: [p.id] });
       await tx.commit();
+      inDeck.add(wordKey(c.hanzi));
       console.log(`✓ ${c.hanzi} (${c.pinyin}) — ${c.english}`);
       ok++;
     } catch (e) {

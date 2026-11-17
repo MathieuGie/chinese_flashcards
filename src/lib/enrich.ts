@@ -3,6 +3,8 @@ import Anthropic from "@anthropic-ai/sdk";
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { sentencePinyin, wordPinyin } from "./pinyin";
 import { z } from "zod";
+import { containsWord, hanziParts, type ParsedWord } from "./hanzi";
+export { parseWordList } from "./hanzi";
 import { lookup, lookupChars, type CedictEntry } from "./cedict";
 import type { DraftCard, Sentence } from "./types";
 
@@ -20,31 +22,6 @@ import type { DraftCard, Sentence } from "./types";
  */
 
 const HAN = /[㐀-䶿一-鿿豈-﫿\u{20000}-\u{2fa1f}]/u;
-const HAN_RUN = /[㐀-䶿一-鿿豈-﫿\u{20000}-\u{2fa1f}]+/gu;
-const EMOJI = /\p{Extended_Pictographic}(️|‍\p{Extended_Pictographic})*/gu;
-
-export interface ParsedWord {
-  hanzi: string;
-  emoji?: string;
-}
-
-/** Accepts anything pasted: one word per line, commas, spaces, emojis… */
-export function parseWordList(text: string): ParsedWord[] {
-  const out: ParsedWord[] = [];
-  const seen = new Set<string>();
-  for (const chunk of text.split(/[\n,，;；、|]+/)) {
-    const runs = chunk.match(HAN_RUN);
-    if (!runs) continue;
-    const emoji = chunk.match(EMOJI)?.join("");
-    // "螺旋 🌀" → one word; "跨 顺滑" on one line → two words
-    for (const hanzi of runs) {
-      if (seen.has(hanzi)) continue;
-      seen.add(hanzi);
-      out.push({ hanzi, emoji: runs.length === 1 ? emoji : undefined });
-    }
-  }
-  return out;
-}
 
 /** Joins syllables for short words ("luó xuán" → "luóxuán"), keeps idioms spaced. */
 function displayPinyin(p: string, hanzi: string) {
@@ -111,7 +88,7 @@ async function aiEnrich(word: ParsedWord, entries: CedictEntry[]): Promise<Omit<
     messages: [
       {
         role: "user",
-        content: `Word: ${word.hanzi}\n\nCC-CEDICT entries:\n${dictText}`,
+        content: `Word: ${word.hanzi}${word.note ? `\nLearner's note (hints at the intended reading/sense): ${word.note}` : ""}\n\nCC-CEDICT entries:\n${dictText}`,
       },
     ],
   });
@@ -139,10 +116,12 @@ async function aiEnrich(word: ParsedWord, entries: CedictEntry[]): Promise<Omit<
 // ---------------------------------------------------------------------------
 
 async function tatoebaSentences(word: string, limit = 6): Promise<Sentence[]> {
-  const exact = await tatoebaQuery(word, `="${word}"`, limit);
+  const parts = hanziParts(word);
+  // patterns/pairs (以…为…, 浓 / 淡) can't be searched as one phrase
+  const exact = parts.length > 1 ? [] : await tatoebaQuery(word, `="${word}"`, limit);
   if (exact.length >= 3) return exact;
   // exact-phrase search misses some idioms/compounds: retry as a plain search
-  const loose = await tatoebaQuery(word, word, limit);
+  const loose = await tatoebaQuery(word, parts.join(" "), limit);
   const seen = new Set(exact.map((s) => s.hanzi));
   return [...exact, ...loose.filter((s) => !seen.has(s.hanzi))].slice(0, limit);
 }
@@ -162,7 +141,7 @@ async function tatoebaQuery(word: string, q: string, limit: number): Promise<Sen
     };
     const out: Sentence[] = [];
     for (const s of data.data ?? []) {
-      if (s.script === "Hant" || !s.text.includes(word)) continue;
+      if (s.script === "Hant" || !containsWord(s.text, word)) continue;
       const tr = (s.translations ?? [])
         .flat()
         .find((t): t is { text: string; lang: string } =>
@@ -231,7 +210,7 @@ export async function enrichWord(word: ParsedWord): Promise<DraftCard> {
     const card = await aiEnrich(word, entries);
     const warnings: string[] = [];
     // Validate the AI output against the dictionary + itself.
-    const valid = card.sentences.filter((s) => s.hanzi.includes(word.hanzi) && HAN.test(s.hanzi));
+    const valid = card.sentences.filter((s) => containsWord(s.hanzi, word.hanzi) && HAN.test(s.hanzi));
     if (valid.length < card.sentences.length)
       warnings.push(`${card.sentences.length - valid.length} sentence(s) didn't contain the word and were dropped.`);
     card.sentences = valid;

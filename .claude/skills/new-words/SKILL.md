@@ -28,8 +28,21 @@ If it can't reach the database, ask the user to run `~/.turso/turso auth login` 
 their own terminal. Never ask for or print tokens.
 
 Each entry has `hanzi`, an optional `emoji` the user chose (keep it), an optional
-`note` (use it to pick the intended sense) and `cedict` hints with numbered pinyin.
-If nothing is waiting, say so and stop.
+`note` and `cedict` hints with numbered pinyin. If nothing is waiting, say so and stop.
+
+- **`note`** is usually the user's whole pasted line, e.g. `盛 shèng flourishing`. Use
+  any pinyin/English in it only to pick the intended reading and sense — still write
+  the whole card yourself, from scratch.
+- **Multi-part entries.** Each pasted line is one entry, so `hanzi` can be:
+  - a **pattern**, parts joined by `…` (`以…为…`, `越…越…`): one card for the
+    construction; every sentence must contain all parts, in order, not adjacent.
+  - a **pair**, joined by ` / ` (`浓 / 淡`, `发抖 / 颤抖`): synonyms, opposites or
+    related words learned together. Each sentence must contain at least one of them,
+    and every word must appear somewhere; use the notes to contrast them. Pinyin:
+    `nóng / dàn`; english: `strong, thick / weak, light`.
+  - If a pair is really a pattern (e.g. `以 / 为` with a note like `以 yǐ 为 wéi to
+    regard as`), write the card as the pattern (`"hanzi": "以…为…"`) and add
+    `"replaces": "以 / 为"` so the waiting entry is cleared.
 
 ## 2. Write the cards
 

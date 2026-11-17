@@ -1,6 +1,7 @@
 import "server-only";
 import type { Row } from "@libsql/client";
 import { getDb } from "./db";
+import { wordKey } from "./hanzi";
 import { applyGrade, masteryOf, retrievability, type DeckEntry } from "./srs";
 import type { Grade } from "ts-fsrs";
 import {
@@ -139,14 +140,21 @@ export async function loadDeck(): Promise<DeckEntry[]> {
   }));
 }
 
+/**
+ * Looks up which of these entries are already in the deck → Map(given hanzi → card id).
+ * Matches on wordKey, so 以…为… and "以 / 为" are the same entry (but 以为 is not).
+ */
 export async function findByHanzi(hanzi: string[]) {
   if (hanzi.length === 0) return new Map<string, number>();
   const db = await getDb();
-  const res = await db.execute({
-    sql: `SELECT id, hanzi FROM cards WHERE hanzi IN (${hanzi.map(() => "?").join(",")})`,
-    args: hanzi,
-  });
-  return new Map(res.rows.map((r) => [String(r.hanzi), num(r.id)]));
+  const res = await db.execute("SELECT id, hanzi FROM cards");
+  const byKey = new Map(res.rows.map((r) => [wordKey(String(r.hanzi)), num(r.id)]));
+  const out = new Map<string, number>();
+  for (const h of hanzi) {
+    const id = byKey.get(wordKey(h));
+    if (id !== undefined) out.set(h, id);
+  }
+  return out;
 }
 
 export async function createCards(drafts: DraftCard[]): Promise<number[]> {
@@ -402,7 +410,7 @@ export async function listPending(): Promise<PendingWord[]> {
 export async function addPending(words: { hanzi: string; emoji?: string; note?: string }[]) {
   const db = await getDb();
   const inDeck = await findByHanzi(words.map((w) => w.hanzi));
-  const queued = new Set((await listPending()).map((p) => p.hanzi));
+  const queued = new Set((await listPending()).map((p) => wordKey(p.hanzi)));
   const existing: { id: number; hanzi: string }[] = [];
   const alreadyQueued: string[] = [];
   const added: string[] = [];
@@ -410,9 +418,9 @@ export async function addPending(words: { hanzi: string; emoji?: string; note?: 
   const stmts = [];
   for (const w of words) {
     if (inDeck.has(w.hanzi)) existing.push({ id: inDeck.get(w.hanzi)!, hanzi: w.hanzi });
-    else if (queued.has(w.hanzi)) alreadyQueued.push(w.hanzi);
+    else if (queued.has(wordKey(w.hanzi))) alreadyQueued.push(w.hanzi);
     else {
-      queued.add(w.hanzi);
+      queued.add(wordKey(w.hanzi));
       added.push(w.hanzi);
       stmts.push({
         sql: "INSERT INTO pending (hanzi, emoji, note, created_at) VALUES (?, ?, ?, ?)",
@@ -432,6 +440,9 @@ export async function deletePending(id: number) {
 /** Removes words from the waiting list once they have become cards. */
 export async function clearPending(hanzi: string[]) {
   if (hanzi.length === 0) return;
+  const keys = new Set(hanzi.map(wordKey));
+  const ids = (await listPending()).filter((p) => keys.has(wordKey(p.hanzi))).map((p) => p.id);
+  if (ids.length === 0) return;
   const db = await getDb();
-  await db.execute({ sql: `DELETE FROM pending WHERE hanzi IN (${hanzi.map(() => "?").join(",")})`, args: hanzi });
+  await db.execute({ sql: `DELETE FROM pending WHERE id IN (${ids.map(() => "?").join(",")})`, args: ids });
 }

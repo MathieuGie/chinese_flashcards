@@ -1,3 +1,4 @@
+import { wordKey } from "@/lib/hanzi";
 import { clearPending, createCards, findByHanzi, listCardSummaries } from "@/lib/repo";
 import type { DraftCard } from "@/lib/types";
 
@@ -13,8 +14,8 @@ export async function POST(req: Request) {
   const seen = new Set<string>();
   const fresh = valid.filter((c) => {
     const h = c.hanzi.trim();
-    if (existing.has(h) || seen.has(h)) return false;
-    seen.add(h);
+    if (existing.has(h) || seen.has(wordKey(h))) return false;
+    seen.add(wordKey(h));
     return true;
   });
   const ids = await createCards(fresh);
