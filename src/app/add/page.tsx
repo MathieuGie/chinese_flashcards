@@ -160,9 +160,9 @@ export default function AddPage() {
           <p className="text-sm text-ink-soft">
             One entry per line. Add an emoji (like <span className="font-hanzi">螺旋🌀</span>) to choose the memory
             hook. Pinyin or English on the line is kept as a hint for which reading and meaning you want. Several
-            words on one line stay together: <span className="font-hanzi">以…为…</span> becomes a grammar pattern,{" "}
-            <span className="font-hanzi">浓 淡</span> a pair. Words go on a waiting list, and Claude writes their cards
-            the next time you ask it to.
+            words on one line (like <span className="font-hanzi">浓 淡</span>) become separate cards, linked in their
+            notes; parts joined by “…” (<span className="font-hanzi">以…为…</span>) make one grammar-pattern card.
+            Words go on a waiting list, and Claude writes their cards the next time you ask it to.
           </p>
           <textarea
             className="input font-hanzi text-lg min-h-40"

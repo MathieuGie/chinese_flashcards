@@ -1,7 +1,6 @@
 /**
- * A card's "hanzi" is usually one word (螺旋), but can also be
- *  - a grammar pattern, parts joined by "…":   以…为…   越…越…
- *  - a pair (synonyms / opposites), joined by " / ":   浓 / 淡
+ * A card's "hanzi" is usually one word (螺旋), but can also be a grammar pattern,
+ * parts joined by "…":   以…为…   越…越…   (Older " / " pairs are still understood.)
  * These helpers find such entries inside sentences. Shared by the app and scripts/words.mjs.
  */
 
@@ -64,34 +63,46 @@ export interface ParsedWord {
 }
 
 /**
- * One entry per line. Several groups of characters on the same line stay one entry:
- * separated by "…" / "..." / "～" they form a grammar pattern (以…为…), otherwise a
- * pair of related words (浓 / 淡). An emoji is kept as the memory hook, and anything
- * else on the line (pinyin, English…) is kept as a note.
+ * One entry per line. A line with several groups of characters:
+ *  - separated by "…" / "..." / "～" → one grammar pattern (以…为…)
+ *  - otherwise (synonyms, opposites…) → one entry per word, each keeping the whole
+ *    line as its note, so the card writer knows the words were listed together.
+ * An emoji is kept as the memory hook, and anything else on the line (pinyin,
+ * English…) is kept as a note.
  */
 export function parseWordList(text: string): ParsedWord[] {
   const out: ParsedWord[] = [];
   const seen = new Set<string>();
+  const push = (w: ParsedWord) => {
+    const key = wordKey(w.hanzi);
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(w);
+  };
   for (const raw of text.split(/\r?\n/)) {
     const runs = raw.match(HAN_RUN);
     if (!runs) continue;
     const emoji = raw.match(EMOJI)?.join("") || undefined;
-    const line = raw.replace(EMOJI, "").replace(/\s+/g, " ").trim();
-    let hanzi = runs[0];
-    if (runs.length > 1) {
-      // Only look at what sits between/after the characters, not at a trailing translation.
-      const afterLast = line.slice(line.lastIndexOf(runs[runs.length - 1]) + runs[runs.length - 1].length);
-      const span = line.slice(line.indexOf(runs[0]), line.lastIndexOf(runs[runs.length - 1])) + afterLast.slice(0, 3);
-      hanzi = /…|\.{2,}|⋯|～|~/.test(span)
-        ? runs.join("…") + (/^\s*(…|\.{2,}|⋯|～|~)/.test(afterLast) ? "…" : "")
-        : runs.join(" / ");
-    }
-    const key = wordKey(hanzi);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    // Anything beyond the characters and separators (letters, digits…) makes the line worth keeping.
+    const line = raw.replace(EMOJI, "").replace(/\s+/g, " ").trim().slice(0, 300);
+    // Anything beyond the characters and separators (letters, digits…) is worth keeping.
     const extra = line.replace(HAN_RUN, "").replace(/[\s…⋯～~./,，、;；:：|()（）\-–—]+/g, "");
-    out.push({ hanzi, emoji, note: extra ? line.slice(0, 300) : undefined });
+    if (runs.length === 1) {
+      push({ hanzi: runs[0], emoji, note: extra ? line : undefined });
+      continue;
+    }
+    // Only look at what sits between the groups (and right after the last), not a trailing translation.
+    const last = runs[runs.length - 1];
+    const afterLast = line.slice(line.lastIndexOf(last) + last.length);
+    const between = line.slice(line.indexOf(runs[0]), line.lastIndexOf(last)) + afterLast.slice(0, 3);
+    if (/…|\.{2,}|⋯|～|~/.test(between)) {
+      push({
+        hanzi: runs.join("…") + (/^\s*(…|\.{2,}|⋯|～|~)/.test(afterLast) ? "…" : ""),
+        emoji,
+        note: extra ? line : undefined,
+      });
+    } else {
+      for (const hanzi of runs) push({ hanzi, note: line });
+    }
   }
   return out;
 }

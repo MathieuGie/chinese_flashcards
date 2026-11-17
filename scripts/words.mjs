@@ -15,8 +15,8 @@
  * cards.json is an array of:
  *   { "hanzi": "螺旋", "pinyin": "luóxuán", "english": "spiral; helix", "emoji": "🌀",
  *     "notes": "…", "sentences": [["中文句子。", "English sentence."], …],
- *     "replaces": "以 / 为" }   ← optional: the waiting-list entry this card is for, if its hanzi differs
- * hanzi may be a pattern ("以…为…") or a pair ("浓 / 淡").
+ *     "replaces": ["以", "为"] }   ← optional: waiting-list entries this card stands for, if they differ
+ * hanzi may be a grammar pattern ("以…为…").
  */
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
@@ -156,7 +156,9 @@ async function importCards(db, path, dryRun) {
   const queued = new Map(
     (await db.execute("SELECT id, hanzi, created_at FROM pending")).rows.map((r) => [wordKey(String(r.hanzi)), { id: Number(r.id), createdAt: Number(r.created_at) }]),
   );
-  const pendingFor = (c) => queued.get(wordKey(c.replaces ?? c.hanzi)) ?? queued.get(wordKey(c.hanzi));
+  // Waiting entries a card clears: its own hanzi plus anything listed in "replaces".
+  const pendingFor = (c) =>
+    [c.hanzi, ...[c.replaces ?? []].flat()].map((h) => queued.get(wordKey(h))).filter(Boolean);
 
   let ok = 0, failed = 0, skipped = 0;
   const now = Date.now();
@@ -183,7 +185,7 @@ async function importCards(db, path, dryRun) {
       const r = await tx.execute({
         sql: `INSERT INTO cards (hanzi, pinyin, english, emoji, notes, source, created_at) VALUES (?, ?, ?, ?, ?, 'claude', ?)`,
         // keep the order words were added in, so they're introduced oldest-first
-        args: [c.hanzi, c.pinyin.trim(), c.english.trim(), c.emoji.trim(), (c.notes ?? "").trim(), pendingFor(c)?.createdAt ?? now + i],
+        args: [c.hanzi, c.pinyin.trim(), c.english.trim(), c.emoji.trim(), (c.notes ?? "").trim(), Math.min(...pendingFor(c).map((p) => p.createdAt), now + i)],
       });
       for (const [zh, en] of c.sentences) {
         await tx.execute({
@@ -191,8 +193,7 @@ async function importCards(db, path, dryRun) {
           args: [Number(r.lastInsertRowid), zh.trim(), sentencePinyin(zh.trim()), en.trim()],
         });
       }
-      const p = pendingFor(c);
-      if (p) await tx.execute({ sql: "DELETE FROM pending WHERE id = ?", args: [p.id] });
+      for (const p of pendingFor(c)) await tx.execute({ sql: "DELETE FROM pending WHERE id = ?", args: [p.id] });
       await tx.commit();
       inDeck.add(wordKey(c.hanzi));
       console.log(`✓ ${c.hanzi} (${c.pinyin}) — ${c.english}`);
