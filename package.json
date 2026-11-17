@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "words": "node --no-warnings scripts/words.mjs"
+    "words": "node --no-warnings --env-file-if-exists=.env.words scripts/words.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.8.0",

@@ -16,8 +16,15 @@ pinyin, saves them and removes them from the waiting list.
 npm run -s words -- list
 ```
 
-This connects to the live database through the logged-in `turso` CLI. If it says
-it can't reach the database, ask the user to run `~/.turso/turso auth login` in
+This connects to the site's database through the logged-in `turso` CLI. Which
+database is set in `.env.words` (git-ignored: `TURSO_ORG=…`, `TURSO_DB=…`). The site
+uses the database Vercel's Turso integration created, which lives in its own Turso
+org (`vercel-icfg-…`), not the personal one. The first line of output names the
+database; the script refuses databases without a `cards` table.
+
+If `.env.words` is missing, find the database with `npx vercel integration list`
+(the Turso resource name) and `~/.turso/turso org list`, then recreate the file.
+If it can't reach the database, ask the user to run `~/.turso/turso auth login` in
 their own terminal. Never ask for or print tokens.
 
 Each entry has `hanzi`, an optional `emoji` the user chose (keep it), an optional
