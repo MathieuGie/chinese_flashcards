@@ -18,6 +18,7 @@ interface Stats {
   today: number;
   activity: { day: number; count: number; correct: number }[];
   struggling: { id: number; hanzi: string; english: string }[];
+  pendingCount: number;
 }
 
 const MASTERY_ORDER: { key: Mastery; label: string; cls: string }[] = [
@@ -65,6 +66,12 @@ export default function Home() {
               <>All caught up for now 🍵</>
             )}
           </p>
+          {stats.pendingCount > 0 && (
+            <p className="text-xs text-ink-soft mt-1">
+              <Link href="/add" className="underline">{stats.pendingCount} word{stats.pendingCount === 1 ? "" : "s"}</Link> waiting
+              for Claude to write their cards.
+            </p>
+          )}
           {stats.session.throttled === "struggling" && (
             <p className="text-xs text-gold mt-1">Recent accuracy is low — new words are slowed down so reviews can catch up.</p>
           )}

@@ -84,6 +84,14 @@ export interface DraftCard {
   emoji: string;
   notes: string;
   sentences: Sentence[];
-  source: "ai" | "dictionary" | "manual";
+  source: "ai" | "dictionary" | "manual" | "claude";
   warnings: string[];
+}
+
+export interface PendingWord {
+  id: number;
+  hanzi: string;
+  emoji: string;
+  note: string;
+  createdAt: number;
 }

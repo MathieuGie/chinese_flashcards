@@ -9,6 +9,7 @@ import {
   type CardSummary,
   type Direction,
   type DraftCard,
+  type PendingWord,
   type ReviewRecord,
   type Sentence,
   type Settings,
@@ -381,4 +382,56 @@ export async function saveSettings(patch: Partial<Settings>) {
     }));
   if (stmts.length) await db.batch(stmts, "write");
   return getSettings();
+}
+
+// ---------- Waiting list: words added on the site, cards written later by Claude ----------
+
+export async function listPending(): Promise<PendingWord[]> {
+  const db = await getDb();
+  const res = await db.execute("SELECT id, hanzi, emoji, note, created_at FROM pending ORDER BY created_at, id");
+  return res.rows.map((r) => ({
+    id: num(r.id),
+    hanzi: String(r.hanzi),
+    emoji: String(r.emoji),
+    note: String(r.note),
+    createdAt: num(r.created_at),
+  }));
+}
+
+/** Queues words, skipping any already in the deck or already waiting. */
+export async function addPending(words: { hanzi: string; emoji?: string; note?: string }[]) {
+  const db = await getDb();
+  const inDeck = await findByHanzi(words.map((w) => w.hanzi));
+  const queued = new Set((await listPending()).map((p) => p.hanzi));
+  const existing: { id: number; hanzi: string }[] = [];
+  const alreadyQueued: string[] = [];
+  const added: string[] = [];
+  const now = Date.now();
+  const stmts = [];
+  for (const w of words) {
+    if (inDeck.has(w.hanzi)) existing.push({ id: inDeck.get(w.hanzi)!, hanzi: w.hanzi });
+    else if (queued.has(w.hanzi)) alreadyQueued.push(w.hanzi);
+    else {
+      queued.add(w.hanzi);
+      added.push(w.hanzi);
+      stmts.push({
+        sql: "INSERT INTO pending (hanzi, emoji, note, created_at) VALUES (?, ?, ?, ?)",
+        args: [w.hanzi, w.emoji ?? "", w.note?.trim() ?? "", now + stmts.length],
+      });
+    }
+  }
+  if (stmts.length) await db.batch(stmts, "write");
+  return { added, existing, alreadyQueued };
+}
+
+export async function deletePending(id: number) {
+  const db = await getDb();
+  await db.execute({ sql: "DELETE FROM pending WHERE id = ?", args: [id] });
+}
+
+/** Removes words from the waiting list once they have become cards. */
+export async function clearPending(hanzi: string[]) {
+  if (hanzi.length === 0) return;
+  const db = await getDb();
+  await db.execute({ sql: `DELETE FROM pending WHERE hanzi IN (${hanzi.map(() => "?").join(",")})`, args: hanzi });
 }

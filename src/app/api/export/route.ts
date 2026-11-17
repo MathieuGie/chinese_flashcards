@@ -3,8 +3,8 @@ import { getDb } from "@/lib/db";
 /** Full JSON backup of everything (cards, sentences, memory states, history). */
 export async function GET() {
   const db = await getDb();
-  const [cards, sentences, srs, reviews, settings] = await Promise.all(
-    ["cards", "sentences", "srs", "reviews", "settings"].map((t) => db.execute(`SELECT * FROM ${t}`)),
+  const [cards, sentences, srs, reviews, settings, pending] = await Promise.all(
+    ["cards", "sentences", "srs", "reviews", "settings", "pending"].map((t) => db.execute(`SELECT * FROM ${t}`)),
   );
   const body = JSON.stringify(
     {
@@ -14,6 +14,7 @@ export async function GET() {
       srs: srs.rows,
       reviews: reviews.rows,
       settings: settings.rows,
+      pending: pending.rows,
     },
     null,
     2,

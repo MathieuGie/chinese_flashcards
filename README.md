@@ -26,14 +26,21 @@ To start over, stop the server and delete `local.db`.
   below 75% or a review backlog builds up (`src/lib/srs.ts`).
 - **Quiz**: meaning / characters / fill-in-the-blank / tones, weighted towards weak words; answers update the same
   schedule.
-- **Adding words**: paste a list (emoji after a word is kept as its memory hook). Pinyin + definitions come from
-  CC-CEDICT; with `ANTHROPIC_API_KEY` set, Claude picks the sense, emoji and writes 6 example sentences,
-  cross-checked against the dictionary. Without a key, sentences come from Tatoeba. Everything is editable before saving.
+- **Adding words**: paste a list on the Add page (an emoji after a word is kept as its memory hook, and an
+  optional note tells Claude which sense you mean). Words go on a **waiting list**; words already in the deck or
+  already waiting are skipped.
+- **Writing the cards**: open Claude Code in this folder and say *"make cards for my new words"*. The
+  `new-words` skill (`.claude/skills/new-words`) reads the waiting list from the live database, writes pinyin,
+  meaning, emoji, notes and 6 example sentences per word, and imports them with `npm run words -- import`, which
+  validates each card (pinyin vs CC-CEDICT, every sentence contains the word) before saving. Needs the `turso` CLI
+  logged in (`~/.turso/turso auth login`).
+- **Instant fallback**: "make cards now from the dictionary" on the Add page builds cards straight away from
+  CC-CEDICT + Tatoeba sentences (or via the Claude API if `ANTHROPIC_API_KEY` is set), editable before saving.
 
 ## Deploy to Vercel
 
 1. Create a Turso database (`turso db create hanzi`, `turso db tokens create hanzi`) and set
    `TURSO_DATABASE_URL` + `TURSO_AUTH_TOKEN` in Vercel. (Vercel's filesystem isn't persistent, so `local.db` won't work there.)
-2. Set `APP_PASSWORD` so only you can use it, and `ANTHROPIC_API_KEY` for AI lookups.
+2. Set `APP_PASSWORD` so only you can use it. (`ANTHROPIC_API_KEY` is optional — only used by the instant fallback.)
 
 Dictionary data: CC-CEDICT (CC BY-SA 4.0). Example sentences in fallback mode: Tatoeba (CC BY 2.0 FR).

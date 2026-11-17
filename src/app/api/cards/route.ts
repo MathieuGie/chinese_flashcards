@@ -1,4 +1,4 @@
-import { createCards, findByHanzi, listCardSummaries } from "@/lib/repo";
+import { clearPending, createCards, findByHanzi, listCardSummaries } from "@/lib/repo";
 import type { DraftCard } from "@/lib/types";
 
 export async function GET() {
@@ -18,5 +18,6 @@ export async function POST(req: Request) {
     return true;
   });
   const ids = await createCards(fresh);
+  await clearPending(fresh.map((c) => c.hanzi.trim()));
   return Response.json({ ids, skipped: valid.length - fresh.length });
 }

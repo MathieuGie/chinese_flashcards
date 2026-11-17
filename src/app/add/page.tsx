@@ -1,31 +1,77 @@
 "use client";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CardEditor } from "@/components/CardEditor";
 import { api } from "@/lib/client";
-import type { DraftCard } from "@/lib/types";
+import type { DraftCard, PendingWord } from "@/lib/types";
 
 type Draft = DraftCard & { include: boolean; open: boolean };
+type Known = { id: number; hanzi: string };
+type Notice =
+  | { kind: "queued"; added: string[]; alreadyQueued: string[] }
+  | { kind: "saved"; added: number; skipped: number };
 
 export default function AddPage() {
   const [text, setText] = useState("");
+  const [note, setNote] = useState("");
+  const [pending, setPending] = useState<PendingWord[] | null>(null);
   const [drafts, setDrafts] = useState<Draft[] | null>(null);
   const [mode, setMode] = useState<"ai" | "dictionary" | null>(null);
-  const [busy, setBusy] = useState<"lookup" | "save" | null>(null);
+  const [busy, setBusy] = useState<"queue" | "lookup" | "save" | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState<{ added: number; skipped: number } | null>(null);
-  const [existing, setExisting] = useState<{ id: number; hanzi: string }[]>([]);
+  const [notice, setNotice] = useState<Notice | null>(null);
+  const [existing, setExisting] = useState<Known[]>([]);
 
-  const lookup = async () => {
-    setBusy("lookup");
+  useEffect(() => {
+    api<{ pending: PendingWord[] }>("/api/pending")
+      .then((r) => setPending(r.pending))
+      .catch((e) => setError((e as Error).message));
+  }, []);
+
+  const start = (what: NonNullable<typeof busy>) => {
+    setBusy(what);
     setError(null);
-    setSaved(null);
+    setNotice(null);
     setExisting([]);
+  };
+
+  /** Main path: put the words on the waiting list for Claude. */
+  const queue = async () => {
+    start("queue");
     try {
-      const res = await api<{ drafts: DraftCard[]; existing: { id: number; hanzi: string }[]; mode: "ai" | "dictionary" }>(
-        "/api/enrich",
-        { method: "POST", json: { text } },
+      const res = await api<{ added: string[]; existing: Known[]; alreadyQueued: string[]; pending: PendingWord[] }>(
+        "/api/pending",
+        { method: "POST", json: { text, note } },
       );
+      setPending(res.pending);
+      setExisting(res.existing);
+      setNotice({ kind: "queued", added: res.added, alreadyQueued: res.alreadyQueued });
+      setText("");
+      setNote("");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const unqueue = async (id: number) => {
+    try {
+      const res = await api<{ pending: PendingWord[] }>("/api/pending", { method: "DELETE", json: { id } });
+      setPending(res.pending);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
+  /** Secondary path: make cards immediately from the free dictionary. */
+  const lookup = async () => {
+    start("lookup");
+    try {
+      const res = await api<{ drafts: DraftCard[]; existing: Known[]; mode: "ai" | "dictionary" }>("/api/enrich", {
+        method: "POST",
+        json: { text },
+      });
       setMode(res.mode);
       setExisting(res.existing);
       if (res.drafts.length === 0) {
@@ -43,18 +89,18 @@ export default function AddPage() {
 
   const save = async () => {
     if (!drafts) return;
-    setBusy("save");
-    setError(null);
+    start("save");
     try {
       const chosen = drafts.filter((d) => d.include);
       const res = await api<{ ids: number[]; skipped: number }>("/api/cards", {
         method: "POST",
         json: { cards: chosen },
       });
-      setSaved({ added: res.ids.length, skipped: res.skipped });
-      setExisting([]);
+      setNotice({ kind: "saved", added: res.ids.length, skipped: res.skipped });
       setDrafts(null);
       setText("");
+      // Saving a card also removes it from the waiting list.
+      api<{ pending: PendingWord[] }>("/api/pending").then((r) => setPending(r.pending), () => {});
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -71,42 +117,33 @@ export default function AddPage() {
     <div className="flex flex-col gap-4">
       <h1 className="text-xl font-semibold">Add words</h1>
 
-      {saved !== null && (
+      {notice?.kind === "saved" && (
         <div className="rounded-xl bg-jade/10 text-jade px-4 py-3 flex items-center justify-between">
           <span>
-            Added {saved.added} card{saved.added === 1 ? "" : "s"} to your deck.
-            {saved.skipped > 0 && ` (${saved.skipped} already there, skipped.)`}
+            Added {notice.added} card{notice.added === 1 ? "" : "s"} to your deck.
+            {notice.skipped > 0 && ` (${notice.skipped} already there, skipped.)`}
           </span>
           <Link href="/study" className="underline font-medium">Study now →</Link>
         </div>
       )}
-
-      {!drafts && (
-        <div className="panel p-4 flex flex-col gap-3">
-          <p className="text-sm text-ink-soft">
-            Paste one or many words — one per line, or separated by commas. You can add an emoji after a word
-            (like <span className="font-hanzi">螺旋🌀</span>) to use it as the memory hook. Pinyin, translation and
-            example sentences are looked up for you, and you can review everything before saving.
-          </p>
-          <textarea
-            className="input font-hanzi text-lg min-h-40"
-            placeholder={"螺旋🌀\n跨\n顺滑"}
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-          />
-          <button className="btn-primary self-start" onClick={lookup} disabled={!text.trim() || busy !== null}>
-            {busy === "lookup" ? "Looking up… (can take a few seconds per word)" : "Look up"}
-          </button>
+      {notice?.kind === "queued" && (notice.added.length > 0 || notice.alreadyQueued.length > 0) && (
+        <div className="rounded-xl bg-jade/10 text-jade px-4 py-3 text-sm">
+          {notice.added.length > 0 && (
+            <div>
+              Added to the waiting list: <span className="font-hanzi text-base">{notice.added.join("、")}</span>
+            </div>
+          )}
+          {notice.alreadyQueued.length > 0 && (
+            <div className="text-ink-soft">
+              Already waiting: <span className="font-hanzi text-base">{notice.alreadyQueued.join("、")}</span>
+            </div>
+          )}
         </div>
       )}
 
-      {error && <div className="rounded-xl bg-seal/10 text-seal px-3 py-2 text-sm">{error}</div>}
-
       {existing.length > 0 && (
         <div className="rounded-xl bg-paper-2 px-4 py-3 text-sm">
-          <span className="text-ink-soft">
-            {drafts ? "Already in your deck, so not added again: " : existing.length === 1 ? "Already in your deck: " : `All ${existing.length} words are already in your deck: `}
-          </span>
+          <span className="text-ink-soft">Already in your deck, so not added again: </span>
           {existing.map((e, i) => (
             <span key={e.id}>
               {i > 0 && "、"}
@@ -116,13 +153,76 @@ export default function AddPage() {
         </div>
       )}
 
+      {error && <div className="rounded-xl bg-seal/10 text-seal px-3 py-2 text-sm">{error}</div>}
+
+      {!drafts && (
+        <div className="panel p-4 flex flex-col gap-3">
+          <p className="text-sm text-ink-soft">
+            Paste one or many words — one per line, or separated by commas. Add an emoji after a word (like{" "}
+            <span className="font-hanzi">螺旋🌀</span>) to choose its memory hook. Words go on a waiting list, and Claude
+            writes their cards (pinyin, meaning, emoji, 6 example sentences) the next time you ask it to.
+          </p>
+          <textarea
+            className="input font-hanzi text-lg min-h-40"
+            placeholder={"螺旋🌀\n跨\n顺滑"}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+          />
+          <input
+            className="input text-sm"
+            placeholder="Optional note for Claude — e.g. where you saw it, or the meaning you're after"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+          />
+          <div className="flex flex-wrap items-center gap-3">
+            <button className="btn-primary" onClick={queue} disabled={!text.trim() || busy !== null}>
+              {busy === "queue" ? "Adding…" : "Add to waiting list"}
+            </button>
+            <button className="text-sm text-ink-soft underline" onClick={lookup} disabled={!text.trim() || busy !== null}>
+              {busy === "lookup" ? "Looking up…" : "or make cards now from the dictionary"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {!drafts && pending && pending.length > 0 && (
+        <section className="panel p-4 flex flex-col gap-3">
+          <div>
+            <h2 className="font-semibold">Waiting for Claude ({pending.length})</h2>
+            <p className="text-xs text-ink-soft mt-1">
+              Open Claude Code in this project and say <em>“make cards for my new words”</em>. They&apos;ll then appear
+              in your study sessions.
+            </p>
+          </div>
+          <ul className="flex flex-wrap gap-2">
+            {pending.map((p) => (
+              <li
+                key={p.id}
+                className="flex items-center gap-1.5 rounded-xl border border-line bg-card pl-3 pr-1 py-1"
+                title={p.note || undefined}
+              >
+                {p.emoji && <span>{p.emoji}</span>}
+                <span className="font-hanzi text-lg">{p.hanzi}</span>
+                {p.note && <span className="text-xs text-ink-soft">✎</span>}
+                <button
+                  className="w-7 h-7 rounded-lg text-ink-soft hover:text-seal hover:bg-seal/10"
+                  onClick={() => unqueue(p.id)}
+                  aria-label={`Remove ${p.hanzi} from the waiting list`}
+                >
+                  ×
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       {drafts && (
         <>
           {mode === "dictionary" && (
             <div className="rounded-xl bg-gold/10 text-ink px-4 py-3 text-sm">
-              <strong>Dictionary mode:</strong> meanings come from CC-CEDICT and example sentences from Tatoeba.
-              Set <code className="px-1 rounded bg-paper-2">ANTHROPIC_API_KEY</code> to have Claude pick the best sense,
-              choose an emoji and write 6 tailored sentences per word.
+              <strong>Dictionary mode:</strong> meanings come from CC-CEDICT and example sentences from Tatoeba. For
+              better cards, go back and use the waiting list instead.
             </div>
           )}
           <div className="flex flex-col gap-3">

@@ -1,4 +1,4 @@
-import { activity, getSettings, listCardSummaries, loadDeck, newIntroducedSince, recentAccuracy } from "@/lib/repo";
+import { activity, getSettings, listCardSummaries, listPending, loadDeck, newIntroducedSince, recentAccuracy } from "@/lib/repo";
 import { planSession } from "@/lib/srs";
 import type { NextRequest } from "next/server";
 
@@ -7,13 +7,14 @@ export async function GET(req: NextRequest) {
   const now = new Date();
   const localNow = now.getTime() - tz * 60_000;
   const midnight = localNow - (localNow % 86400_000) + tz * 60_000;
-  const [settings, cards, deck, newToday, acc, days] = await Promise.all([
+  const [settings, cards, deck, newToday, acc, days, pending] = await Promise.all([
     getSettings(),
     listCardSummaries(),
     loadDeck(),
     newIntroducedSince(midnight),
     recentAccuracy(),
     activity(7 * 18, tz),
+    listPending(),
   ]);
   const plan = planSession(deck, {
     settings,
@@ -37,6 +38,7 @@ export async function GET(req: NextRequest) {
     .slice(0, 8)
     .map((c) => ({ id: c.id, hanzi: c.hanzi, english: c.english }));
   return Response.json({
+    pendingCount: pending.length,
     settings,
     total: cards.length,
     mastery,

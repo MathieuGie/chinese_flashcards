@@ -61,6 +61,15 @@ const SCHEMA: string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_reviews_card ON reviews(card_id, reviewed_at)`,
   `CREATE INDEX IF NOT EXISTS idx_reviews_time ON reviews(reviewed_at)`,
+  // Words added on the site, waiting for Claude (in a Claude Code session) to
+  // write their cards. See scripts/words.mjs and .claude/skills/new-words.
+  `CREATE TABLE IF NOT EXISTS pending (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    hanzi TEXT NOT NULL UNIQUE,
+    emoji TEXT NOT NULL DEFAULT '',
+    note TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL
+  )`,
   `CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
