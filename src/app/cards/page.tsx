@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { MasteryBadge, RecallBar } from "@/components/Mastery";
+import { DirectionStatus, MasteryBadge, RecallBar } from "@/components/Mastery";
 import { api, relativeTime } from "@/lib/client";
 import type { CardSummary, Mastery } from "@/lib/types";
 
@@ -99,9 +99,10 @@ export default function CardsPage() {
                   </div>
                   <div className="text-sm truncate">{c.english}</div>
                 </div>
-                <div className="flex flex-col items-end gap-1 shrink-0 w-28">
+                <div className="flex flex-col items-end gap-1 shrink-0 w-32">
                   <MasteryBadge mastery={c.mastery} />
                   <RecallBar value={c.retrievability} />
+                  <DirectionStatus srs={c.srs} />
                   <span className="text-[11px] text-ink-soft">
                     {dues.length ? `due ${relativeTime(Math.min(...dues))}` : "not studied"}
                   </span>

@@ -1,4 +1,4 @@
-import { buildQuiz } from "@/lib/quiz";
+import { buildQuiz, canWrite, type WritingMode } from "@/lib/quiz";
 import { listCardSummaries } from "@/lib/repo";
 import type { NextRequest } from "next/server";
 
@@ -7,5 +7,12 @@ export async function GET(req: NextRequest) {
   const cards = await listCardSummaries();
   if (cards.length < 4)
     return Response.json({ error: "Add at least 4 cards to use the quiz." }, { status: 400 });
-  return Response.json({ questions: buildQuiz(cards, count) });
+  const w = req.nextUrl.searchParams.get("writing");
+  const writing: WritingMode = w === "only" || w === "off" ? w : "mixed";
+  if (writing === "only" && !cards.some(canWrite))
+    return Response.json(
+      { error: "No words to write yet — handwriting covers words you've started studying but not mastered." },
+      { status: 400 },
+    );
+  return Response.json({ questions: buildQuiz(cards, count, writing) });
 }

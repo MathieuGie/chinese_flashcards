@@ -7,7 +7,7 @@ export async function POST(req: Request) {
     cardId: number;
     direction: Direction;
     grade: keyof typeof GRADE;
-    source?: "study" | "quiz";
+    source?: "study" | "quiz" | "write";
     flipped?: boolean;
     elapsedMs?: number;
   };
@@ -17,7 +17,7 @@ export async function POST(req: Request) {
     cardId: Number(body.cardId),
     direction: body.direction,
     grade: GRADE[body.grade],
-    source: body.source === "quiz" ? "quiz" : "study",
+    source: body.source === "quiz" || body.source === "write" ? body.source : "study",
     flipped: !!body.flipped,
     elapsedMs: typeof body.elapsedMs === "number" ? Math.round(body.elapsedMs) : null,
   });

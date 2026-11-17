@@ -12,6 +12,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^1.8.0",
     "@libsql/client": "^0.18.0",
+    "hanzi-writer": "^3.7.3",
     "motion": "^14.14.0",
     "next": "16.4.6",
     "pinyin-pro": "^3.29.5",

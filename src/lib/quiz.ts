@@ -1,5 +1,5 @@
 import "server-only";
-import { containsWord, findWord } from "./hanzi";
+import { containsWord, findWord, hanziParts } from "./hanzi";
 import { numberedToMarks } from "./cedict";
 import { retrievability } from "./srs";
 import type { CardSummary, Direction } from "./types";
@@ -11,14 +11,26 @@ import type { CardSummary, Direction } from "./types";
  * into the same memory model as the flashcards.
  */
 
-export type QuestionType = "meaning" | "hanzi" | "cloze" | "pinyin";
+export type QuestionType = "meaning" | "hanzi" | "cloze" | "pinyin" | "write";
+/** mixed: words you're learning are often asked as handwriting; only: handwriting only; off: never. */
+export type WritingMode = "mixed" | "only" | "off";
 
 export interface QuizQuestion {
   id: string;
   type: QuestionType;
   cardId: number;
   direction: Direction;
-  prompt: { hanzi?: string; pinyin?: string; english?: string; emoji?: string; sentence?: string; sentenceEnglish?: string };
+  prompt: {
+    hanzi?: string;
+    pinyin?: string;
+    english?: string;
+    emoji?: string;
+    sentence?: string;
+    sentenceFull?: string;
+    sentenceEnglish?: string;
+    /** "write": the characters to draw, one at a time */
+    chars?: string[];
+  };
   options: string[];
   answer: number;
   explanation: { hanzi: string; pinyin: string; english: string; emoji: string };
@@ -131,11 +143,16 @@ function toneVariants(p: string, n = 3): string[] {
   return [...out];
 }
 
-export function buildQuiz(all: CardSummary[], count: number): QuizQuestion[] {
+/** Words you're currently learning — studied, but not yet mature — get handwriting questions. */
+export const canWrite = (c: CardSummary) =>
+  c.mastery !== "new" && c.mastery !== "mature" && hanziParts(c.hanzi).length > 0;
+
+export function buildQuiz(all: CardSummary[], count: number, writing: WritingMode = "mixed"): QuizQuestion[] {
   if (all.length < 4) return [];
   const now = new Date();
+  const pool = writing === "only" ? all.filter(canWrite) : all;
   const picked = weightedSample(
-    all,
+    pool,
     (c) => {
       const studied = Object.values(c.srs).filter((s) => s && s.state !== 0);
       if (studied.length === 0) return 0.25;
@@ -143,7 +160,7 @@ export function buildQuiz(all: CardSummary[], count: number): QuizQuestion[] {
       const lapses = studied.reduce((a, s) => a + (s?.lapses ?? 0), 0);
       return 1 - r + 0.2 + lapses * 0.15 + (c.mastery === "struggling" ? 0.5 : 0);
     },
-    Math.min(count, all.length),
+    Math.min(count, pool.length),
   );
 
   return picked.map((card, i) => {
@@ -152,6 +169,7 @@ export function buildQuiz(all: CardSummary[], count: number): QuizQuestion[] {
     const clozeSentences = card.sentences.filter((s) => containsWord(s.hanzi, card.hanzi));
     if (clozeSentences.length) types.push("cloze", "cloze");
     let type = types[Math.floor(Math.random() * types.length)];
+    if (writing !== "off" && canWrite(card) && (writing === "only" || Math.random() < 0.6)) type = "write";
 
     let options: string[] = [];
     let correct = "";
@@ -183,7 +201,22 @@ export function buildQuiz(all: CardSummary[], count: number): QuizQuestion[] {
       options = [correct, ...pickDistractors(card, all, (c) => c.hanzi)];
       prompt = {
         sentence: blankOut(s.hanzi, card.hanzi),
+        sentenceFull: s.hanzi,
         sentenceEnglish: s.english,
+      };
+    }
+
+    if (type === "write") {
+      // Recall from meaning → characters: drawn stroke by stroke in the browser and graded there.
+      return {
+        id: `${Date.now()}-${i}`,
+        type,
+        cardId: card.id,
+        direction: "en2zh" as Direction,
+        prompt: { english: card.english, emoji: card.emoji, pinyin: card.pinyin, chars: hanziParts(card.hanzi).join("").split("") },
+        options: [],
+        answer: -1,
+        explanation,
       };
     }
 

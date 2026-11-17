@@ -257,7 +257,7 @@ export async function recordReview(input: {
   cardId: number;
   direction: Direction;
   grade: Grade;
-  source: "study" | "quiz";
+  source: "study" | "quiz" | "write";
   flipped: boolean;
   elapsedMs: number | null;
 }) {
@@ -312,7 +312,7 @@ export async function getHistory(cardId: number): Promise<ReviewRecord[]> {
     direction: String(r.direction) as Direction,
     grade: num(r.grade),
     correct: num(r.correct) === 1,
-    source: String(r.source) as "study" | "quiz",
+    source: String(r.source) as "study" | "quiz" | "write",
     flipped: num(r.flipped) === 1,
     elapsedMs: r.elapsed_ms == null ? null : num(r.elapsed_ms),
     stateBefore: num(r.state_before),

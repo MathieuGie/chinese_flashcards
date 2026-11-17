@@ -103,6 +103,9 @@ export function masteryOf(
     return "struggling";
   if (studied.some((s) => s.state === State.Learning || s.state === State.Relearning))
     return "learning";
+  // A word is only known once it's validated both ways: recognition (汉→EN) AND
+  // recall (EN→汉). Until both directions have graduated, it stays "learning".
+  if (studied.length < states.length) return "learning";
   const minStability = Math.min(...studied.map((s) => s.stability));
   return minStability >= 21 ? "mature" : "young";
 }

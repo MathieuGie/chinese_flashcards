@@ -56,7 +56,7 @@ export interface ReviewRecord {
   direction: Direction;
   grade: number;
   correct: boolean;
-  source: "study" | "quiz";
+  source: "study" | "quiz" | "write";
   flipped: boolean;
   elapsedMs: number | null;
   stateBefore: number;
