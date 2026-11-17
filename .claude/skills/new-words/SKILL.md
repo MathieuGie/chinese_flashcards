@@ -94,3 +94,11 @@ Use `--local` to work on `local.db` instead of the live deck (for testing).
 Tell the user which words were added (hanzi, pinyin, meaning, emoji), anything
 skipped or uncertain, and that the new cards will appear in study sessions —
 oldest-added first, within their daily new-word limit.
+
+## Correcting existing cards
+
+`npm run -s words -- export <file>` dumps the deck (in the order words were added,
+with each card's review count). Write corrected cards (same `hanzi`, complete
+objects) to a file and run `import <file> --update` (dry-run first): cards are fixed
+in place, keeping their study history. A card with `"replaces": ["以", "为"]` deletes
+those cards and takes their place — refused for cards with reviews unless `--force`.
