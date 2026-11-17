@@ -7,6 +7,7 @@ customPinyin({
   饺子: "jiǎo zi",
   告诉: "gào su",
   东西: "dōng xi",
+  凑合: "còu he",
   面糊: "miàn hú",
   卷成: "juǎn chéng",
   只差: "zhǐ chà",
