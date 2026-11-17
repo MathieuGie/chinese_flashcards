@@ -5,9 +5,9 @@ import { retrievability } from "./srs";
 import type { CardSummary, Direction } from "./types";
 
 /**
- * Evaluation mode. Questions are picked by weighted sampling that favours
- * words you are likely to have forgotten (low predicted recall, many lapses),
- * while still sampling everything you've studied. Every answer is fed back
+ * Evaluation mode. Only words you've already studied are asked. They're picked by
+ * weighted sampling that favours words you are likely to have forgotten (low
+ * predicted recall, many lapses), while still sampling everything you've studied. Every answer is fed back
  * into the same memory model as the flashcards.
  */
 
@@ -150,14 +150,16 @@ export const canWrite = (c: CardSummary) =>
 export function buildQuiz(all: CardSummary[], count: number, writing: WritingMode = "mixed"): QuizQuestion[] {
   if (all.length < 4) return [];
   const now = new Date();
-  const pool = writing === "only" ? all.filter(canWrite) : all;
+  // Only words you've already studied: the quiz checks what you've learned, it doesn't introduce new words.
+  // (Wrong answer options still come from the whole deck.)
+  const studied = all.filter((c) => c.mastery !== "new");
+  const pool = writing === "only" ? studied.filter(canWrite) : studied;
   const picked = weightedSample(
     pool,
     (c) => {
-      const studied = Object.values(c.srs).filter((s) => s && s.state !== 0);
-      if (studied.length === 0) return 0.25;
-      const r = Math.min(...studied.map((s) => retrievability(s, now) ?? 1));
-      const lapses = studied.reduce((a, s) => a + (s?.lapses ?? 0), 0);
+      const seen = Object.values(c.srs).filter((s) => s && s.state !== 0);
+      const r = Math.min(...seen.map((s) => retrievability(s, now) ?? 1));
+      const lapses = seen.reduce((a, s) => a + (s?.lapses ?? 0), 0);
       return 1 - r + 0.2 + lapses * 0.15 + (c.mastery === "struggling" ? 0.5 : 0);
     },
     Math.min(count, pool.length),

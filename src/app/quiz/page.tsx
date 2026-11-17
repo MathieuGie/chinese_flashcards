@@ -104,8 +104,9 @@ export default function QuizPage() {
         <h1 className="text-xl font-semibold">Quiz</h1>
         <div className="panel p-6 flex flex-col gap-5">
           <p className="text-ink-soft">
-            A mixed test: meanings, characters, fill-in-the-blank sentences, tones and handwriting. It focuses on the
-            words you are most likely to have forgotten, and every answer updates that word&apos;s memory schedule.
+            A mixed test on words you&apos;ve already studied — never brand-new ones: meanings, characters,
+            fill-in-the-blank sentences, tones and handwriting. It focuses on the words you are most likely to have
+            forgotten, and every answer updates that word&apos;s memory schedule.
           </p>
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-sm text-ink-soft mr-1">Questions:</span>

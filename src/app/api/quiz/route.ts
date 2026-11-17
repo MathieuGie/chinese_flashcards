@@ -7,6 +7,8 @@ export async function GET(req: NextRequest) {
   const cards = await listCardSummaries();
   if (cards.length < 4)
     return Response.json({ error: "Add at least 4 cards to use the quiz." }, { status: 400 });
+  if (!cards.some((c) => c.mastery !== "new"))
+    return Response.json({ error: "The quiz checks words you've already studied — do a study session first." }, { status: 400 });
   const w = req.nextUrl.searchParams.get("writing");
   const writing: WritingMode = w === "only" || w === "off" ? w : "mixed";
   if (writing === "only" && !cards.some(canWrite))
